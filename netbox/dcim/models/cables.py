@@ -1,6 +1,8 @@
 import itertools
+import logging
 from collections import defaultdict
 
+from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -26,6 +28,8 @@ __all__ = (
     'CablePath',
     'CableTermination',
 )
+
+logger = logging.getLogger('netbox.dcim.cable')
 
 
 trace_paths = Signal()
@@ -521,7 +525,7 @@ class CablePath(models.Model):
         return int(len(self.path) / 3)
 
     @classmethod
-    def from_origin(cls, terminations):
+    def from_origin(cls, terminations, max_length=settings.CABLE_TRACE_MAX_LENGTH):
         """
         Create a new CablePath instance as traced from the given termination objects. These can be any object to which a
         Cable or WirelessLink connects (interfaces, console ports, circuit termination, etc.). All terminations must be
@@ -585,9 +589,13 @@ class CablePath(models.Model):
             # Step 4: Record the links, keeping cables in order to allow for SVG rendering
             cables = []
             for link in links:
-                if object_to_path_node(link) not in cables:
-                    cables.append(object_to_path_node(link))
+                cable = object_to_path_node(link)
+                if cable not in cables:
+                    cables.append(cable)
             path.append(cables)
+            if len(path) >= max_length:
+                logger.warning('Infinite loop detected while updating cable path trace')
+                break
 
             # Step 5: Update the path status if a link is not connected
             links_status = [link.status for link in links if link.status != LinkStatusChoices.STATUS_CONNECTED]

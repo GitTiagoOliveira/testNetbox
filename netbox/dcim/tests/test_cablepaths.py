@@ -1,10 +1,12 @@
 from django.test import TestCase
+from django.contrib.contenttypes.models import ContentType
 
 from circuits.models import *
 from dcim.choices import LinkStatusChoices
 from dcim.models import *
 from dcim.svg import CableTraceSVG
 from dcim.utils import object_to_path_node
+from dcim.choices import CableEndChoices
 
 
 class CablePathTestCase(TestCase):
@@ -2343,3 +2345,54 @@ class CablePathTestCase(TestCase):
             is_active=True
         )
         self.assertEqual(CablePath.objects.count(), 0)
+
+    def test_detect_infinite_loop(self):
+        """
+        Tests the ability to detect a non-resolving path and break out with a logged warning.
+        Assertion will fail if max_length is exceeded (meaning infinite loop detection failed), or not reached
+        (meaning this test is no longer valid as existing synthetic path no longer creates an infinite loop).
+        [IF1] --C1-- [FP1][Test Device][Rear Splice]
+                     [FP2]   --C2--    [ Rear Splice
+        """
+        manufacturer = Manufacturer.objects.create(name='Infinite Loop Co', slug='infinite-loop-co')
+        role = DeviceRole.objects.create(name='Infinite Loop Device Role', slug='infinite-loop-device-role')
+        device_type = DeviceType.objects.create(manufacturer=manufacturer, model='Infinite Loop Device Type', slug='infinite-loop-device-type')
+        device = Device.objects.create(site=self.site, device_type=device_type, role=role, name='Infinite Loop Device')
+        interface = Interface.objects.create(device=device, name='Interface 1')
+
+        patch_panel_device_type = DeviceType.objects.create(
+            manufacturer=manufacturer,
+            front_port_template_count=48,
+            rear_port_template_count=48,
+        )
+        patch_panel = Device.objects.create(site=self.site, device_type=patch_panel_device_type, role=role)
+        rear_splice = RearPort.objects.create(device=patch_panel, positions=48, name='Rear Splice')
+        front_port_1 = FrontPort.objects.create(device=patch_panel, rear_port=rear_splice, rear_port_position=1, name='Front Port 1')
+        front_port_2 = FrontPort.objects.create(device=patch_panel, rear_port=rear_splice, rear_port_position=2, name='Front Port 2')
+
+        ct_interface = ContentType.objects.get(app_label='dcim', model='interface')
+        ct_frontport = ContentType.objects.get(app_label='dcim', model='frontport')
+        ct_rearport = ContentType.objects.get(app_label='dcim', model='rearport')
+
+        cable_1 = Cable.objects.create()
+        CableTermination.objects.create(cable=cable_1, cable_end='A', termination_type=ct_interface, termination_id=interface.id)
+        CableTermination.objects.create(cable=cable_1, cable_end='B', termination_type=ct_frontport, termination_id=front_port_1.id)
+
+        cable_2 = Cable.objects.create()
+        CableTermination.objects.create(cable=cable_2, cable_end='A', termination_type=ct_frontport, termination_id=front_port_2.id)
+        CableTermination.objects.create(cable=cable_2, cable_end='B', termination_type=ct_rearport, termination_id=rear_splice.id)
+
+        cable_1.save()
+
+        max_length = 50
+        a_terminations = []
+        b_terminations = []
+        for t in cable_1.terminations.all():
+            if t.cable_end == CableEndChoices.SIDE_A:
+                a_terminations.append(t.termination)
+            else:
+                b_terminations.append(t.termination)
+        cp = CablePath.from_origin(a_terminations, max_length=max_length)
+        self.assertEqual(len(cp.path), max_length)
+        cp = CablePath.from_origin(b_terminations, max_length=max_length)
+        self.assertLess(len(cp.path), max_length)
