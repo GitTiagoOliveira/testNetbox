@@ -94,17 +94,17 @@ The following colors are supported:
 
 !!! tip "Dynamic Configuration Parameter"
 
-This is a mapping of models to [custom validators](../customization/custom-validation.md) against which an object is evaluated immediately prior to its deletion. If validation fails, the object is not deleted. An example is provided below:
+This is a mapping of models to [custom validators](../customization/custom-validation.md) against which an object is evaluated immediately prior to its deletion. If validation fails, the object is not deleted. The configuration can be carried out in the menu under “System/Configuration History/Custom validators”. 
+In the example, a device can only be deleted when it is set to the “decommissioning” status. Paths such as “dcim.device” can be found in the top right-hand corner when you open the page of a device. For a rack it would therefore be “dcim.rack”.
 
 ```python
-PROTECTION_RULES = {
-    "dcim.site": [
+{
+    "dcim.device": [
         {
             "status": {
                 "eq": "decommissioning"
             }
-        },
-        "my_plugin.validators.Validator1",
+        }
     ]
 }
 ```
