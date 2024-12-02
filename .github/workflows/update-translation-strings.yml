@@ -18,6 +18,13 @@ jobs:
       NETBOX_CONFIGURATION: netbox.configuration_testing
 
     steps:
+    - name: Create app token
+      uses: actions/create-github-app-token@v1
+      id: app-token
+      with:
+        app-id: 1075756
+        private-key: ${{ secrets.MAKEMESSAGES_SECRET_KEY }}
+
     - name: Check out repo
       uses: actions/checkout@v4
 
@@ -40,6 +47,7 @@ jobs:
     - name: Commit changes
       uses: EndBug/add-and-commit@v9
       with:
+        token: ${{ steps.app-token.outputs.token }}
         add: 'netbox/translations/'
         default_author: github_actions
         message: 'Update source translation strings'
